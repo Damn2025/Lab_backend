@@ -2,7 +2,7 @@ import cors from "cors";
 import dotenv from "dotenv";
 import express from "express";
 import { getPublicSearchConfig } from "./config/allowedTables.js";
-import { fetchStateOptions, searchLabsDataset } from "./services/labSearchService.js";
+import { fetchStateOptions, searchLabsDataset, getLabTests } from "./services/labSearchService.js";
 
 dotenv.config();
 
@@ -41,6 +41,16 @@ app.post("/api/data", async (req, res, next) => {
     const result = await searchLabsDataset({ filters, limit, sort, page, search, labType });
 
     return res.json(result);
+  } catch (error) {
+    return next(error);
+  }
+});
+
+app.get("/api/labs/:source/:labId/tests", async (req, res, next) => {
+  try {
+    const { source, labId } = req.params;
+    const tests = await getLabTests(source, labId);
+    return res.json({ tests });
   } catch (error) {
     return next(error);
   }

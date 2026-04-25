@@ -30,7 +30,8 @@ export const searchSources = [
       "City",
       "State",
       "Pin",
-      "disciplineName"
+      "disciplineName",
+      "groupName"
     ]
   },
   {
@@ -52,7 +53,8 @@ export const searchSources = [
       "City",
       "State",
       "Pin",
-      "disciplineName"
+      "disciplineName",
+      "groupName"
     ]
   }
 ];
@@ -63,8 +65,9 @@ export const sharedColumns = {
     "Lab Name",
     "Address",
     "State",
-    "Phone Number",
-    "Email"
+    "Discipline Name", // Added Discipline Name
+    "Group Name", // Added Group Name
+    "Details" // Placeholder for the icon column
   ],
   searchableLabColumns: [
     "labId",
@@ -84,12 +87,6 @@ export function createFilterFields() {
       type: "dropdown",
       operator: "eq"
     },
-    city: {
-      label: "City",
-      column: "City",
-      type: "text",
-      operator: "ilike"
-    },
     labName: {
       label: "Lab Name",
       column: "LaboratoryName",
@@ -101,18 +98,6 @@ export function createFilterFields() {
       column: "product",
       type: "text",
       operator: "ilike"
-    },
-    test: {
-      label: "Test",
-      column: "test",
-      type: "text",
-      operator: "ilike"
-    },
-    testMethod: {
-      label: "Test + Method",
-      columns: ["test", "method"],
-      type: "text",
-      operator: "or-ilike"
     }
   };
 }
@@ -125,7 +110,7 @@ export function getPublicSearchConfig() {
     columns: sharedColumns.resultColumns,
     filterFields: createFilterFields(),
     labTypeOptions,
-    defaultLimit: 50,
+    defaultLimit: 10,
     defaultSort: {
       column: "Lab Name",
       ascending: true

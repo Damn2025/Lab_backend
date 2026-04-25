@@ -63,7 +63,8 @@ function applyLabFilters(query, filters, selectedLabType) {
 
 function applyTestFilters(query, filters) {
   if (hasText(filters.product)) {
-    query = query.ilike("product", `%${escapeLikeValue(filters.product)}%`);
+    const cleaned = escapeLikeValue(filters.product);
+    query = query.or(`product.ilike.% ${cleaned} %,product.ilike.${cleaned} %,product.ilike.% ${cleaned},product.eq.${cleaned}`);
   }
 
   if (hasText(filters.test)) {
@@ -122,6 +123,7 @@ async function fetchMatchingLabIds(source, filters, search, selectedLabType, loo
   }
 
   const { data, error } = await query;
+  console.log(`[Supabase] fetchMatchingLabIds (${source.sourceKey}):`, data);
 
   if (error) {
     throw new Error(error.message);
@@ -139,6 +141,7 @@ async function fetchLabMap(source, labIds) {
     .from(source.labTable)
     .select(source.labColumns.join(","))
     .in(source.labIdColumn, labIds);
+  console.log(`[Supabase] fetchLabMap (${source.sourceKey}):`, data);
 
   if (error) {
     throw new Error(error.message);
@@ -206,6 +209,7 @@ export async function fetchStateOptions() {
         .select("State")
         .order("State", { ascending: true })
         .limit(5000);
+      console.log(`[Supabase] fetchStateOptions (${source.labTable}):`, data);
 
       if (error) {
         return [];
@@ -229,7 +233,9 @@ function mapLabRowToResult(row, source) {
     "Phone Number": row?.ContactMobile ?? row?.LandLine ?? "-",
     Email: row?.ContactEmail ?? "-",
     labId: row?.[source.labIdColumn] ?? "-",
-    __source: source.sourceKey
+    __source: source.sourceKey,
+    "Discipline Name": row?.disciplineName ?? "-",
+    "Group Name": row?.groupName ?? "-"
   };
 }
 
@@ -243,6 +249,7 @@ async function searchLabsOnlySource(source, filters, selectedLabType, candidateL
   query = query.order(source.labIdColumn, { ascending: true });
 
   const { data, error } = await query;
+  console.log(`[Supabase] searchLabsOnlySource (${source.sourceKey}):`, data);
 
   if (error) {
     throw new Error(error.message);
@@ -312,6 +319,7 @@ async function searchSingleSource(source, payload, selectedLabType, candidateLim
   }
 
   const { data, error, count } = await query;
+  console.log(`[Supabase] searchSingleSource (${source.sourceKey}):`, data);
 
   if (error) {
     throw new Error(error.message);
@@ -372,4 +380,23 @@ export async function searchLabsDataset(payload) {
     totalPages: 1,
     rows: pagedRows
   };
+}
+
+export async function getLabTests(sourceKey, labId) {
+  const source = searchSources.find((s) => s.sourceKey === sourceKey);
+  if (!source) {
+    throw new Error(`Invalid source key: ${sourceKey}`);
+  }
+
+  const { data, error } = await supabase
+    .from(source.testTable)
+    .select("product, test, method")
+    .eq(source.testLabIdColumn, labId)
+    .order("test", { ascending: true });
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return data || [];
 }
