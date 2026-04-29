@@ -64,7 +64,7 @@ function applyLabFilters(query, filters, selectedLabType) {
 function applyTestFilters(query, filters) {
   if (hasText(filters.product)) {
     const cleaned = escapeLikeValue(filters.product);
-    query = query.or(`product.ilike.% ${cleaned} %,product.ilike.${cleaned} %,product.ilike.% ${cleaned},product.eq.${cleaned}`);
+    query = query.ilike("product", `%${cleaned}%`);
   }
 
   if (hasText(filters.test)) {
@@ -201,6 +201,22 @@ function buildAddress(row) {
     .join(", ");
 }
 
+function buildNoResultsMessage({ labType, filters, search }) {
+  const hasFilters = Object.values(filters || {}).some(
+    (value) => value !== undefined && value !== null && `${value}`.trim() !== ""
+  );
+
+  if (hasText(search)) {
+    return `No labs found matching "${search.trim()}".`;
+  }
+
+  if (hasFilters || hasText(labType)) {
+    return "No matching labs found for the selected filters.";
+  }
+
+  return "No labs found in the database.";
+}
+
 export async function fetchStateOptions() {
   const settled = await Promise.all(
     searchSources.map(async (source) => {
@@ -266,6 +282,7 @@ async function searchLabsOnlySource(source, filters, selectedLabType, candidateL
 async function searchSingleSource(source, payload, selectedLabType, candidateLimit) {
   const filters = payload.filters || {};
   const lookupLimit = Math.min(Math.max(candidateLimit * 3, 50), 200);
+  const testLookupLimit = Math.min(Math.max(candidateLimit * 10, 100), 1000);
   const labIdsFromFilters = await fetchMatchingLabIds(
     source,
     filters,
@@ -283,8 +300,8 @@ async function searchSingleSource(source, payload, selectedLabType, candidateLim
 
   let query = supabase
     .from(source.testTable)
-    .select(source.testColumns.join(","), { count: "planned" })
-    .range(0, candidateLimit - 1);
+    .select(source.testLabIdColumn)
+    .limit(testLookupLimit);
 
   query = applyTestFilters(query, filters);
 
@@ -314,33 +331,31 @@ async function searchSingleSource(source, payload, selectedLabType, candidateLim
     query = query.order(sortColumn, {
       ascending: Boolean(payload.sort?.ascending)
     });
-  } else {
-    query = query.order("id", { ascending: false });
   }
 
-  const { data, error, count } = await query;
+  const { data, error } = await query;
   console.log(`[Supabase] searchSingleSource (${source.sourceKey}):`, data);
 
   if (error) {
-    throw new Error(error.message);
+    throw new Error(`${source.sourceKey} search failed: ${error.message}`);
   }
 
-  const labIds = [...new Set((data || []).map((row) => row[source.testLabIdColumn]))];
+  const labIds = [...new Set((data || []).map((row) => row[source.testLabIdColumn]).filter(Boolean))];
   const labMap = await fetchLabMap(source, labIds);
-  const mergedRows = (data || []).map((testRow) =>
-    mapLabRowToResult(
-      {
-        ...labMap.get(testRow[source.testLabIdColumn]),
-        [source.labIdColumn]:
-          labMap.get(testRow[source.testLabIdColumn])?.[source.labIdColumn] ??
-          testRow[source.testLabIdColumn]
-      },
-      source
+  const mergedRows = labIds
+    .map((labId) =>
+      mapLabRowToResult(
+        {
+          ...labMap.get(labId),
+          [source.labIdColumn]: labMap.get(labId)?.[source.labIdColumn] ?? labId
+        },
+        source
+      )
     )
-  );
+    .slice(0, candidateLimit);
 
   return {
-    count: count ?? mergedRows.length,
+    count: mergedRows.length,
     rows: mergedRows
   };
 }
@@ -378,7 +393,11 @@ export async function searchLabsDataset(payload) {
     limit,
     count: pagedRows.length,
     totalPages: 1,
-    rows: pagedRows
+    rows: pagedRows,
+    message:
+      pagedRows.length === 0
+        ? buildNoResultsMessage({ labType: selectedLabType, filters, search: payload.search })
+        : ""
   };
 }
 
