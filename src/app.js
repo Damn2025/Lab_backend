@@ -2,7 +2,12 @@ import cors from "cors";
 import dotenv from "dotenv";
 import express from "express";
 import { getPublicSearchConfig } from "./config/allowedTables.js";
-import { fetchStateOptions, searchLabsDataset, getLabTests } from "./services/labSearchService.js";
+import {
+  fetchStateOptions,
+  searchLabsDataset,
+  getLabTests,
+  searchByProduct
+} from "./services/labSearchService.js";
 
 dotenv.config();
 
@@ -18,7 +23,7 @@ app.use(express.json());
 app.get("/api/health", (_req, res) => {
   res.json({
     ok: true,
-    service: "supabase-filter-backend"
+    service: "lab-backend"
   });
 });
 
@@ -40,6 +45,16 @@ app.post("/api/data", async (req, res, next) => {
     const { filters = {}, limit, sort, page, search = "", labType = "" } = req.body ?? {};
     const result = await searchLabsDataset({ filters, limit, sort, page, search, labType });
 
+    return res.json(result);
+  } catch (error) {
+    return next(error);
+  }
+});
+
+app.get("/api/products/search", async (req, res, next) => {
+  try {
+    const product = req.query.product || "";
+    const result = await searchByProduct(product);
     return res.json(result);
   } catch (error) {
     return next(error);

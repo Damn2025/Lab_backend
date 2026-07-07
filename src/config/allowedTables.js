@@ -12,14 +12,14 @@ export const labTypeOptions = [
 
 export const searchSources = [
   {
-    sourceKey: "biological",
-    label: "Biological Source",
-    labTable: "BioLabs",
-    testTable: "BioTests",
+    sourceKey: "allLabs",
+    label: "All Labs",
+    labTable: "Labs",
+    testTable: "LabProducts",
     labIdColumn: "LabId",
-    testLabIdColumn: "labid",
-    testColumns: ["id", "product", "test", "method", "labid"],
-    searchableTestColumns: ["product", "test", "method", "labid"],
+    testLabIdColumn: "labId",
+    testColumns: ["ProductID", "labId", "Products", "Tests", "TestMethod"],
+    searchableTestColumns: ["Products", "Tests", "TestMethod"],
     labColumns: [
       "LabId",
       "LaboratoryName",
@@ -30,29 +30,7 @@ export const searchSources = [
       "City",
       "State",
       "Pin",
-      "disciplineName",
-      "groupName"
-    ]
-  },
-  {
-    sourceKey: "chemical",
-    label: "Chemical Source",
-    labTable: "ChemicalLabs",
-    testTable: "ChemicalTests",
-    labIdColumn: "labId",
-    testLabIdColumn: "labId",
-    testColumns: ["id", "product", "test", "method", "labId"],
-    searchableTestColumns: ["product", "test", "method", "labId"],
-    labColumns: [
-      "labId",
-      "LaboratoryName",
-      "ContactEmail",
-      "ContactMobile",
-      "LandLine",
-      "PrimeAddress",
-      "City",
-      "State",
-      "Pin",
+      "LabType",
       "disciplineName",
       "groupName"
     ]

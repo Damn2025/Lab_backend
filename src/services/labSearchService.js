@@ -3,7 +3,7 @@ import {
   searchSources,
   sharedColumns
 } from "../config/allowedTables.js";
-import { supabase } from "./supabaseService.js";
+import { mysqlClient } from "./mysqlService.js";
 
 function normalizeLimit(limit, fallback) {
   const parsed = Number(limit);
@@ -41,9 +41,20 @@ function hasTestFilters(filters) {
   return hasText(filters.product) || hasText(filters.test) || hasText(filters.testMethod);
 }
 
+export function resolveLabTypeColumn(selectedLabType) {
+  const normalized = `${selectedLabType || ""}`.trim().toLowerCase();
+
+  if (normalized === "" || ["bio", "biological", "chemical", "cosmetics"].includes(normalized)) {
+    return "LabType";
+  }
+
+  return "disciplineName";
+}
+
 function applyLabFilters(query, filters, selectedLabType) {
   if (hasText(selectedLabType)) {
-    query = query.ilike("disciplineName", `%${escapeLikeValue(selectedLabType)}%`);
+    const labTypeColumn = resolveLabTypeColumn(selectedLabType);
+    query = query.ilike(labTypeColumn, `%${escapeLikeValue(selectedLabType)}%`);
   }
 
   if (hasText(filters.state)) {
@@ -64,16 +75,16 @@ function applyLabFilters(query, filters, selectedLabType) {
 function applyTestFilters(query, filters) {
   if (hasText(filters.product)) {
     const cleaned = escapeLikeValue(filters.product);
-    query = query.ilike("product", `%${cleaned}%`);
+    query = query.ilike("Products", `%${cleaned}%`);
   }
 
   if (hasText(filters.test)) {
-    query = query.ilike("test", `%${escapeLikeValue(filters.test)}%`);
+    query = query.ilike("Tests", `%${escapeLikeValue(filters.test)}%`);
   }
 
   if (hasText(filters.testMethod)) {
     const cleaned = escapeLikeValue(filters.testMethod);
-    query = query.or(`test.ilike.%${cleaned}%,method.ilike.%${cleaned}%`);
+    query = query.or(`Tests.ilike.%${cleaned}%,TestMethod.ilike.%${cleaned}%`);
   }
 
   return query;
@@ -107,7 +118,7 @@ async function fetchMatchingLabIds(source, filters, search, selectedLabType, loo
     return null;
   }
 
-  let query = supabase
+  let query = mysqlClient
     .from(source.labTable)
     .select(source.labIdColumn)
     .limit(lookupLimit);
@@ -123,7 +134,7 @@ async function fetchMatchingLabIds(source, filters, search, selectedLabType, loo
   }
 
   const { data, error } = await query;
-  console.log(`[Supabase] fetchMatchingLabIds (${source.sourceKey}):`, data);
+  console.log(`[MySQL] fetchMatchingLabIds (${source.sourceKey}):`, data);
 
   if (error) {
     throw new Error(error.message);
@@ -137,11 +148,11 @@ async function fetchLabMap(source, labIds) {
     return new Map();
   }
 
-  const { data, error } = await supabase
+  const { data, error } = await mysqlClient
     .from(source.labTable)
     .select(source.labColumns.join(","))
     .in(source.labIdColumn, labIds);
-  console.log(`[Supabase] fetchLabMap (${source.sourceKey}):`, data);
+  console.log(`[MySQL] fetchLabMap (${source.sourceKey}):`, data);
 
   if (error) {
     throw new Error(error.message);
@@ -220,12 +231,12 @@ function buildNoResultsMessage({ labType, filters, search }) {
 export async function fetchStateOptions() {
   const settled = await Promise.all(
     searchSources.map(async (source) => {
-      const { data, error } = await supabase
+      const { data, error } = await mysqlClient
         .from(source.labTable)
         .select("State")
         .order("State", { ascending: true })
         .limit(5000);
-      console.log(`[Supabase] fetchStateOptions (${source.labTable}):`, data);
+      console.log(`[MySQL] fetchStateOptions (${source.labTable}):`, data);
 
       if (error) {
         return [];
@@ -256,7 +267,7 @@ function mapLabRowToResult(row, source) {
 }
 
 async function searchLabsOnlySource(source, filters, selectedLabType, candidateLimit) {
-  let query = supabase
+  let query = mysqlClient
     .from(source.labTable)
     .select(source.labColumns.join(","))
     .limit(candidateLimit);
@@ -265,7 +276,7 @@ async function searchLabsOnlySource(source, filters, selectedLabType, candidateL
   query = query.order(source.labIdColumn, { ascending: true });
 
   const { data, error } = await query;
-  console.log(`[Supabase] searchLabsOnlySource (${source.sourceKey}):`, data);
+  console.log(`[MySQL] searchLabsOnlySource (${source.sourceKey}):`, data);
 
   if (error) {
     throw new Error(error.message);
@@ -298,7 +309,7 @@ async function searchSingleSource(source, payload, selectedLabType, candidateLim
     return { count: 0, rows: [] };
   }
 
-  let query = supabase
+  let query = mysqlClient
     .from(source.testTable)
     .select(source.testLabIdColumn)
     .limit(testLookupLimit);
@@ -334,7 +345,7 @@ async function searchSingleSource(source, payload, selectedLabType, candidateLim
   }
 
   const { data, error } = await query;
-  console.log(`[Supabase] searchSingleSource (${source.sourceKey}):`, data);
+  console.log(`[MySQL] searchSingleSource (${source.sourceKey}):`, data);
 
   if (error) {
     throw new Error(`${source.sourceKey} search failed: ${error.message}`);
@@ -401,21 +412,137 @@ export async function searchLabsDataset(payload) {
   };
 }
 
+export async function searchByProduct(productQuery) {
+  const trimmed = `${productQuery || ""}`.trim();
+
+  if (!hasText(trimmed)) {
+    const error = new Error("Product name is required.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const source = searchSources[0];
+  const cleaned = escapeLikeValue(trimmed);
+  const testLookupLimit = 1000;
+
+  const { data, error } = await mysqlClient
+    .from(source.testTable)
+    .select(`${source.testLabIdColumn}, Products, Tests, TestMethod`)
+    .ilike("Products", `%${cleaned}%`)
+    .limit(testLookupLimit);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  const rows = data || [];
+
+  if (rows.length === 0) {
+    return {
+      product: trimmed,
+      labs: [],
+      tests: [],
+      labCount: 0,
+      testCount: 0,
+      message: `No tests or labs found for product "${trimmed}".`
+    };
+  }
+
+  const labIds = [...new Set(rows.map((row) => row[source.testLabIdColumn]).filter(Boolean))];
+  const labMap = await fetchLabMap(source, labIds);
+
+  const labs = labIds
+    .map((labId) => {
+      const labRow = labMap.get(labId);
+      if (!labRow) {
+        return null;
+      }
+
+      return mapLabRowToResult(
+        {
+          ...labRow,
+          [source.labIdColumn]: labRow[source.labIdColumn] ?? labId
+        },
+        source
+      );
+    })
+    .filter(Boolean);
+
+  const testMap = new Map();
+
+  for (const row of rows) {
+    const testName = `${row.Tests || ""}`.trim();
+    if (!testName) {
+      continue;
+    }
+
+    if (!testMap.has(testName)) {
+      testMap.set(testName, {
+        test: testName,
+        methods: new Set(),
+        labIds: new Set()
+      });
+    }
+
+    const entry = testMap.get(testName);
+    const method = `${row.TestMethod || ""}`.replace(/\[.*?\]/g, "").trim();
+
+    if (method) {
+      entry.methods.add(method);
+    }
+
+    if (row[source.testLabIdColumn]) {
+      entry.labIds.add(row[source.testLabIdColumn]);
+    }
+  }
+
+  const tests = [...testMap.values()]
+    .map((entry) => ({
+      test: entry.test,
+      methods: [...entry.methods].sort((left, right) => left.localeCompare(right)),
+      labCount: entry.labIds.size,
+      labs: [...entry.labIds]
+        .map((labId) => {
+          const labRow = labMap.get(labId);
+          return labRow?.LaboratoryName || `${labId}`;
+        })
+        .sort((left, right) => left.localeCompare(right))
+    }))
+    .sort((left, right) => left.test.localeCompare(right.test));
+
+  return {
+    product: trimmed,
+    labs,
+    tests,
+    labCount: labs.length,
+    testCount: tests.length,
+    message: ""
+  };
+}
+
 export async function getLabTests(sourceKey, labId) {
   const source = searchSources.find((s) => s.sourceKey === sourceKey);
   if (!source) {
     throw new Error(`Invalid source key: ${sourceKey}`);
   }
 
-  const { data, error } = await supabase
+  if (!labId) {
+    throw new Error("Missing labId");
+  }
+
+  const { data, error } = await mysqlClient
     .from(source.testTable)
-    .select("product, test, method")
+    .select("Products, Tests, TestMethod")
     .eq(source.testLabIdColumn, labId)
-    .order("test", { ascending: true });
+    .order("Tests", { ascending: true });
 
   if (error) {
     throw new Error(error.message);
   }
 
-  return data || [];
+  return (data || []).map((row) => ({
+    product: row.Products ?? "-",
+    test: row.Tests ?? "-",
+    method: row.TestMethod ?? "-"
+  }));
 }
