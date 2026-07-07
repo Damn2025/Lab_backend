@@ -13,9 +13,31 @@ dotenv.config();
 
 const app = express();
 
+const defaultAllowedOrigins = [
+  "http://localhost:5173",
+  "https://labcarepro.netlify.app"
+];
+
+const allowedOrigins = [
+  ...defaultAllowedOrigins,
+  ...(process.env.FRONTEND_URL || "")
+    .split(",")
+    .map((origin) => origin.trim().replace(/\/$/, ""))
+    .filter(Boolean)
+];
+
+const uniqueAllowedOrigins = [...new Set(allowedOrigins)];
+
 app.use(
   cors({
-    origin: process.env.FRONTEND_URL || "http://localhost:5173" || "https://labcarepro.netlify.app/"
+    origin(origin, callback) {
+      if (!origin || uniqueAllowedOrigins.includes(origin)) {
+        callback(null, true);
+        return;
+      }
+
+      callback(new Error(`CORS blocked for origin: ${origin}`));
+    }
   })
 );
 app.use(express.json());
